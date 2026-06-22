@@ -2,21 +2,23 @@ import sys
 import logging
 import asyncio
 import os
+import httpx
 from openai import OpenAI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
 # --- কনফিগারেশন ---
-# সিকিউরিটির জন্য রেন্ডার ড্যাশবোর্ডের Environment Variables-এ এগুলো সেট করা ভালো। 
-# অথবা সরাসরি নিচে তোমার টোকেনগুলো বসিয়ে দিতে পারো।
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "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")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8965954748:AAHm-JvA-UfH_IzfUQ9xTOQ90j94n0avMH8")
 MODEL_NAME = "google/gemini-2.5-flash-lite"
 
-# ওপেনরাউটার ক্লায়েন্ট ইনিশিয়েট করা
+# CRITICAL FIX: OpenAI ক্লায়েন্টের লেটেস্ট ভার্সনে স্ট্যান্ডার্ড httpx ক্লায়েন্ট পাস করা হয়েছে
+http_client = httpx.Client()
+
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY,
+    http_client=http_client
 )
 
 # প্রতিটি ইউজারের সেশন ট্র্যাক করার গ্লোবাল মেমোরি
@@ -142,7 +144,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_sessions[chat_id]['setup_msg_id'] = msg.message_id
 
 
-# --- বাটন ইভেন্ট ইন্টারসেপ্টর ---
+# --- বাটন ইভেন্ট ইন্টারсеপ্টর ---
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -218,7 +220,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # ওপেনরাউটার এপিআই রিকোয়েস্ট
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
@@ -252,4 +253,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-  
+                                                
