@@ -12,7 +12,7 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "sk-or-v1-8da8f3f8e374
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8965954748:AAHm-JvA-UfH_IzfUQ9xTOQ90j94n0avMH8")
 MODEL_NAME = "google/gemini-2.5-flash-lite"
 
-# CRITICAL FIX: OpenAI ক্লায়েন্টের লেটেস্ট ভার্সনে স্ট্যান্ডার্ড httpx ক্লায়েন্ট পাস করা হয়েছে
+# OpenAI ক্লায়েন্ট স্ট্যান্ডার্ড httpx ক্লায়েন্ট সহ
 http_client = httpx.Client()
 
 client = OpenAI(
@@ -34,7 +34,15 @@ COUNTRIES = {
     "custom": ("⚙️ Custom System", "Custom")
 }
 
-# মেসেজ নিরাপদে স্ক্রিন থেকে মুছে ফেলার কোর লজিক (ক্লিন ইউআই-এর জন্য)
+# 🛠️ নতুন হোম রুট এপিআই রেন্ডারের ওয়েব সার্ভিস চেকের জন্য (যাতে রেন্ডার বুঝতে পারে পোর্ট সচল)
+from flask import Flask
+server = Flask(__name__)
+
+@server.route('/')
+def home():
+    return "Server Active", 200
+
+# 메시지 নিরাপদে স্ক্রিন থেকে মুছে ফেলার কোর লজিক
 async def safe_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int):
     if message_id:
         try:
@@ -89,7 +97,7 @@ async def start_target_language_phase(chat_id: int, context: ContextTypes.DEFAUL
     )
     user_sessions[chat_id]['setup_msg_id'] = msg.message_id
 
-# সিঙ্গেল পারসিস্টেন্ট কার্ড ইন্টারফেস যা স্ক্রিনে স্থায়ী থাকবে
+# সিঙ্গেল পারসিস্টেন্টカード ইন্টারফেস যা স্ক্রিনে স্থায়ী থাকবে
 async def finalize_translation_setup(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
     user_sessions[chat_id]['state'] = 'READY'
     src = user_sessions[chat_id]['src_lang']
@@ -111,7 +119,6 @@ async def finalize_translation_setup(chat_id: int, context: ContextTypes.DEFAULT
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     
-    # স্ক্রিন ডিক্লাটারিং লজিক
     if chat_id in user_sessions:
         await safe_delete(context, chat_id, user_sessions[chat_id].get('setup_msg_id'))
         await safe_delete(context, chat_id, user_sessions[chat_id].get('status_msg_id'))
@@ -144,7 +151,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_sessions[chat_id]['setup_msg_id'] = msg.message_id
 
 
-# --- বাটন ইভেন্ট ইন্টারсеপ্টর ---
+# --- বাটন ইভেন্ট ইন্টারসেপ্টর ---
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -232,15 +239,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await update.message.reply_text(f"❌ *Neural Network Communication Failure:* `{str(e)}`", parse_mode="Markdown")
     else:
-        # সেটআপ ইন্টারফেসের সুরক্ষার্থে মাঝখানের অনাঙ্কিত মেসেজ ডিলিট করা
         await safe_delete(context, chat_id, update.message.message_id)
 
-# --- মেইন এক্সিকিউশন মডিউল ---
-def main():
-    if TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
-        print("[Fatal] Configuration Variables missing.")
-        sys.exit(1)
-        
+# --- CRITICAL EVENT LOOP FIX FOR RENDER ---
+async def start_bot():
     print("[Success] Global Premium Framework Activated.")
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
@@ -249,8 +251,25 @@ def main():
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    application.run_polling()
+    # ম্যানুয়ালি অ্যাসিনক্রোনাস ইনিশিয়ালাইজ ও পোলিং স্টার্ট
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    
+    # রেন্ডার সার্ভার যাতে একটিভ থাকে তার জন্য ব্যাকগ্রাউন্ড লুপ সচল রাখা
+    while True:
+        await asyncio.sleep(3600)
+
+def main():
+    # রেন্ডারের জন্য পাইথন ডাইনামিক ইভেন্ট লুপ সেটআপ
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    loop.run_until_complete(start_bot())
 
 if __name__ == "__main__":
     main()
-                                                
+        
